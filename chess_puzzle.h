@@ -12,7 +12,7 @@
 #define MAX_MOVES 256
 #define WINNING_THRESHOLD 150 // centipawns
 #define TOP_N_MOVES 3 // Number of top moves for black
-#define ANALYSIS_DEPTH 25
+#define ANALYSIS_DEPTH 20
 
 // Structure for moves with evaluation
 typedef struct {

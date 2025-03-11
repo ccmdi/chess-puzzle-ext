@@ -5,78 +5,116 @@
 #include "chess_puzzle.h"
 
 int get_move_evaluations(FILE *stockfish_in, FILE *stockfish_out, const char *fen, Move *moves) {
+    // Set MultiPV to get top 2 moves (that's all we need for the puzzle detection)
+    send_to_stockfish(stockfish_in, "setoption name MultiPV value 2");
+    
     char command[MAX_LINE_LENGTH];
     sprintf(command, "position fen %s", fen);
     send_to_stockfish(stockfish_in, command);
     sprintf(command, "go depth %d", ANALYSIS_DEPTH);
     send_to_stockfish(stockfish_in, command);
     
-    char *output = read_from_stockfish(stockfish_out, "bestmove");
-    
-    // Parse the output to get move evaluations
+    // Read until "bestmove" and collect the final evaluations at max depth
+    char line[MAX_LINE_LENGTH];
     int num_moves = 0;
-    char *line = strtok(output, "\n");
+    int max_depth = 0;
+    int current_multipv = 0;
     
-    while (line != NULL) {
-        // Parse "info" lines with scores
-        if (strstr(line, "info") && strstr(line, "cp") && strstr(line, "pv")) {
-            char move[MAX_MOVE_LENGTH];
-            int score;
-            
-            char *score_str = strstr(line, "cp");
-            if (score_str) {
-                sscanf(score_str, "cp %d", &score);
+    // Arrays to store the final evaluations at max depth
+    char final_moves[2][MAX_MOVE_LENGTH] = {{0}};
+    int final_scores[2] = {0};
+    bool has_final_moves[2] = {false};
+    
+    while (fgets(line, MAX_LINE_LENGTH, stockfish_out)) {
+        // Check for end of analysis
+        if (strstr(line, "bestmove")) {
+            break;
+        }
+        
+        // Look for evaluation lines
+        if (strstr(line, "info depth") && strstr(line, "multipv") && strstr(line, "score")) {
+            int depth, multipv;
+            if (sscanf(line, "info depth %d seldepth %*d multipv %d", &depth, &multipv) == 2) {
+                // Track maximum depth
+                if (depth > max_depth) {
+                    max_depth = depth;
+                }
                 
-                char *pv_str = strstr(line, "pv");
-                if (pv_str) {
-                    sscanf(pv_str, "pv %s", move);
+                // Only process lines from the maximum depth
+                if (depth == max_depth && multipv <= 2) {
+                    int score = 0;
                     
-                    // Store the move and its evaluation
-                    strcpy(moves[num_moves].move, move);
-                    moves[num_moves].evaluation = score;
-                    num_moves++;
+                    // Parse score - handle both centipawns and mate scores
+                    char *score_str = strstr(line, "score");
+                    if (score_str) {
+                        if (strstr(score_str, "cp")) {
+                            sscanf(score_str, "score cp %d", &score);
+                        } else if (strstr(score_str, "mate")) {
+                            int mate_in;
+                            sscanf(score_str, "score mate %d", &mate_in);
+                            // Convert mate score to high centipawn value
+                            score = (mate_in > 0) ? 10000 : -10000;
+                        }
+                    }
+                    
+                    // Extract the first move in the PV line
+                    char *pv_str = strstr(line, " pv ");
+                    if (pv_str) {
+                        char move[MAX_MOVE_LENGTH] = {0};
+                        sscanf(pv_str + 4, "%s", move);
+                        
+                        // Store this move for the multipv index (1-based in UCI)
+                        if (multipv >= 1 && multipv <= 2) {
+                            strcpy(final_moves[multipv-1], move);
+                            final_scores[multipv-1] = score;
+                            has_final_moves[multipv-1] = true;
+                        }
+                    }
                 }
             }
         }
-        
-        line = strtok(NULL, "\n");
     }
     
+    // Transfer the final moves to the result array
+    for (int i = 0; i < 2; i++) {
+        if (has_final_moves[i]) {
+            strcpy(moves[num_moves].move, final_moves[i]);
+            moves[num_moves].evaluation = final_scores[i];
+            num_moves++;
+        }
+    }
     return num_moves;
 }
 
 bool is_puzzle_position(FILE *stockfish_in, FILE *stockfish_out, const char *fen, char *winning_move) {
-    printf("Evaluating position: %.20s...\n", fen);
+    Move moves[2]; // We only need the top 2 moves
     
-    Move moves[MAX_MOVES];
     int num_moves = get_move_evaluations(stockfish_in, stockfish_out, fen, moves);
     
+    printf("Evaluating position: %.20s...\n", fen);
     printf("Found %d possible moves\n", num_moves);
     
-    // Count moves above the winning threshold
-    int winning_moves = 0;
-    int best_move_index = -1;
-    int best_eval = -10000;
-    
-    for (int i = 0; i < num_moves; i++) {
-        printf("  Move %s: evaluation %d\n", moves[i].move, moves[i].evaluation);
-        
-        if (moves[i].evaluation >= WINNING_THRESHOLD) {
-            winning_moves++;
-            if (moves[i].evaluation > best_eval) {
-                best_eval = moves[i].evaluation;
-                best_move_index = i;
-            }
-        }
+    if (num_moves < 1) {
+        return false; // No moves found
     }
     
-    printf("Found %d winning moves (threshold: %d)\n", winning_moves, WINNING_THRESHOLD);
+    // Print the moves we found
+    for (int i = 0; i < num_moves; i++) {
+        printf("  Move %d (%s): evaluation %d\n", i+1, moves[i].move, moves[i].evaluation);
+    }
     
-    // If exactly one winning move, return it
-    if (winning_moves == 1 && best_move_index >= 0) {
-        strcpy(winning_move, moves[best_move_index].move);
+    // Check if the best move is above threshold and second move (if exists) is below
+    if (moves[0].evaluation >= WINNING_THRESHOLD && 
+        (num_moves < 2 || moves[1].evaluation < WINNING_THRESHOLD)) {
+        printf("Found 1 winning move (threshold: %d)\n", WINNING_THRESHOLD);
+        strcpy(winning_move, moves[0].move);
         return true;
     }
+    
+    printf("Found %d winning moves (threshold: %d)\n", 
+           (moves[0].evaluation >= WINNING_THRESHOLD) + 
+           ((num_moves > 1 && moves[1].evaluation >= WINNING_THRESHOLD) ? 1 : 0), 
+           WINNING_THRESHOLD);
     
     return false;
 }

@@ -29,8 +29,22 @@ bool initialize_stockfish(FILE **stockfish_in, FILE **stockfish_out) {
         close(in_pipe[0]);
         close(out_pipe[1]);
         
-        execl("/usr/games/stockfish", "stockfish", NULL);
-        perror("execl");
+        // Try different common paths for Stockfish
+        const char* paths[] = {
+            // "/usr/local/bin/stockfish",
+            // "/usr/bin/stockfish",
+            "/usr/games/stockfish"
+            // "stockfish"  // Rely on PATH
+        };
+        //g
+        
+        for (int i = 0; i < sizeof(paths)/sizeof(paths[0]); i++) {
+            execl(paths[i], "stockfish", NULL);
+            // If we get here, execl failed
+        }
+        
+        // If all attempts failed
+        fprintf(stderr, "Could not execute Stockfish. Make sure it's installed and in your PATH.\n");
         exit(1);
     }
     
@@ -41,9 +55,15 @@ bool initialize_stockfish(FILE **stockfish_in, FILE **stockfish_out) {
     *stockfish_in = fdopen(in_pipe[1], "w");
     *stockfish_out = fdopen(out_pipe[0], "r");
     
+    if (!*stockfish_in || !*stockfish_out) {
+        perror("fdopen");
+        return false;
+    }
+    
     // Initialize Stockfish
     send_to_stockfish(*stockfish_in, "uci");
     send_to_stockfish(*stockfish_in, "setoption name Threads value 1");
+    send_to_stockfish(*stockfish_in, "setoption name MultiPV value 2");
     send_to_stockfish(*stockfish_in, "isready");
     
     // Wait for readyok
@@ -76,8 +96,20 @@ char* read_from_stockfish(FILE *stockfish_out, const char *until_marker) {
     buffer[0] = '\0';
     
     char line[MAX_LINE_LENGTH];
+    size_t total_len = 0;
+    
     while (fgets(line, MAX_LINE_LENGTH, stockfish_out)) {
+        size_t line_len = strlen(line);
+        
+        // Check if adding this line would overflow the buffer
+        if (total_len + line_len >= MAX_BUFFER_SIZE - 1) {
+            fprintf(stderr, "Warning: Buffer overflow prevented in read_from_stockfish\n");
+            break;
+        }
+        
         strcat(buffer, line);
+        total_len += line_len;
+        
         if (strstr(line, until_marker)) {
             break;
         }
