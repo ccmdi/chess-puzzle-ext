@@ -33,18 +33,34 @@ PuzzleLine find_longest_puzzle(FILE *stockfish_in, FILE *stockfish_out, const ch
     }
     
     // Black's turn: try top N moves and find the one extending the puzzle the longest
-    Move top_moves[TOP_N_MOVES];
-    int n_top_moves = get_top_n_moves(stockfish_in, stockfish_out, fen, top_moves, TOP_N_MOVES);
+    // Increase this to explore more of Black's options
+    #define BLACK_MOVES_TO_TRY 5
+    Move top_moves[BLACK_MOVES_TO_TRY];
+    
+    // Get the top moves for Black (we want more than TOP_N_MOVES here to find longer puzzles)
+    int n_top_moves = get_move_evaluations(stockfish_in, stockfish_out, fen, top_moves, BLACK_MOVES_TO_TRY);
+    
+    printf("Black's options at position: %.20s...\n", fen);
+    for (int i = 0; i < n_top_moves; i++) {
+        printf("  Option %d: %s (eval: %d)\n", i+1, top_moves[i].move, top_moves[i].evaluation);
+    }
     
     PuzzleLine best_line = {0};
     
     for (int i = 0; i < n_top_moves; i++) {
+        printf("Trying Black's move: %s\n", top_moves[i].move);
+        
         char new_fen[MAX_FEN_LENGTH];
         get_new_position(stockfish_in, stockfish_out, fen, top_moves[i].move, new_fen);
         
         PuzzleLine line = find_longest_puzzle(stockfish_in, stockfish_out, new_fen, true, depth + 1);
         
+        printf("  → Move %s leads to puzzle length: %d\n", top_moves[i].move, line.length);
+        
         if (line.length > best_line.length) {
+            printf("  → New best move for Black: %s (extends puzzle to %d moves)\n", 
+                   top_moves[i].move, line.length + 1);
+            
             strcpy(best_line.moves, top_moves[i].move);
             if (line.length > 0) {
                 strcat(best_line.moves, " ");

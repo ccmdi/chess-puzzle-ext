@@ -4,9 +4,11 @@
 #include <stdbool.h>
 #include "chess_puzzle.h"
 
-int get_move_evaluations(FILE *stockfish_in, FILE *stockfish_out, const char *fen, Move *moves) {
-    // Set MultiPV to get top 2 moves (that's all we need for the puzzle detection)
-    send_to_stockfish(stockfish_in, "setoption name MultiPV value 2");
+int get_move_evaluations(FILE *stockfish_in, FILE *stockfish_out, const char *fen, Move *moves, int multipv_count) {
+    // Set MultiPV to the requested number of moves
+    char multipv_cmd[64];
+    sprintf(multipv_cmd, "setoption name MultiPV value %d", multipv_count);
+    send_to_stockfish(stockfish_in, multipv_cmd);
     
     char command[MAX_LINE_LENGTH];
     sprintf(command, "position fen %s", fen);
@@ -18,12 +20,26 @@ int get_move_evaluations(FILE *stockfish_in, FILE *stockfish_out, const char *fe
     char line[MAX_LINE_LENGTH];
     int num_moves = 0;
     int max_depth = 0;
-    int current_multipv = 0;
     
     // Arrays to store the final evaluations at max depth
-    char final_moves[2][MAX_MOVE_LENGTH] = {{0}};
-    int final_scores[2] = {0};
-    bool has_final_moves[2] = {false};
+    char *final_moves = malloc(multipv_count * MAX_MOVE_LENGTH);
+    int *final_scores = malloc(multipv_count * sizeof(int));
+    bool *has_final_moves = malloc(multipv_count * sizeof(bool));
+    
+    if (!final_moves || !final_scores || !has_final_moves) {
+        fprintf(stderr, "Memory allocation failed\n");
+        if (final_moves) free(final_moves);
+        if (final_scores) free(final_scores);
+        if (has_final_moves) free(has_final_moves);
+        return 0;
+    }
+    
+    // Initialize arrays
+    for (int i = 0; i < multipv_count; i++) {
+        memset(&final_moves[i * MAX_MOVE_LENGTH], 0, MAX_MOVE_LENGTH);
+        final_scores[i] = 0;
+        has_final_moves[i] = false;
+    }
     
     while (fgets(line, MAX_LINE_LENGTH, stockfish_out)) {
         // Check for end of analysis
@@ -41,7 +57,7 @@ int get_move_evaluations(FILE *stockfish_in, FILE *stockfish_out, const char *fe
                 }
                 
                 // Only process lines from the maximum depth
-                if (depth == max_depth && multipv <= 2) {
+                if (depth == max_depth && multipv <= multipv_count) {
                     int score = 0;
                     
                     // Parse score - handle both centipawns and mate scores
@@ -64,8 +80,8 @@ int get_move_evaluations(FILE *stockfish_in, FILE *stockfish_out, const char *fe
                         sscanf(pv_str + 4, "%s", move);
                         
                         // Store this move for the multipv index (1-based in UCI)
-                        if (multipv >= 1 && multipv <= 2) {
-                            strcpy(final_moves[multipv-1], move);
+                        if (multipv >= 1 && multipv <= multipv_count) {
+                            strcpy(&final_moves[(multipv-1) * MAX_MOVE_LENGTH], move);
                             final_scores[multipv-1] = score;
                             has_final_moves[multipv-1] = true;
                         }
@@ -76,20 +92,25 @@ int get_move_evaluations(FILE *stockfish_in, FILE *stockfish_out, const char *fe
     }
     
     // Transfer the final moves to the result array
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < multipv_count; i++) {
         if (has_final_moves[i]) {
-            strcpy(moves[num_moves].move, final_moves[i]);
+            strcpy(moves[num_moves].move, &final_moves[i * MAX_MOVE_LENGTH]);
             moves[num_moves].evaluation = final_scores[i];
             num_moves++;
         }
     }
+    
+    free(final_moves);
+    free(final_scores);
+    free(has_final_moves);
+    
     return num_moves;
 }
 
 bool is_puzzle_position(FILE *stockfish_in, FILE *stockfish_out, const char *fen, char *winning_move) {
     Move moves[2]; // We only need the top 2 moves
     
-    int num_moves = get_move_evaluations(stockfish_in, stockfish_out, fen, moves);
+    int num_moves = get_move_evaluations(stockfish_in, stockfish_out, fen, moves, 2);
     
     printf("Evaluating position: %.20s...\n", fen);
     printf("Found %d possible moves\n", num_moves);
@@ -120,25 +141,7 @@ bool is_puzzle_position(FILE *stockfish_in, FILE *stockfish_out, const char *fen
 }
 
 int get_top_n_moves(FILE *stockfish_in, FILE *stockfish_out, const char *fen, Move *top_moves, int n) {
-    Move all_moves[MAX_MOVES];
-    int num_moves = get_move_evaluations(stockfish_in, stockfish_out, fen, all_moves);
-    
-    // Sort moves by evaluation (descending)
-    for (int i = 0; i < num_moves - 1; i++) {
-        for (int j = i + 1; j < num_moves; j++) {
-            if (all_moves[j].evaluation > all_moves[i].evaluation) {
-                Move temp = all_moves[i];
-                all_moves[i] = all_moves[j];
-                all_moves[j] = temp;
-            }
-        }
-    }
-    
-    // Copy top N moves
-    int actual_n = (num_moves < n) ? num_moves : n;
-    memcpy(top_moves, all_moves, actual_n * sizeof(Move));
-    
-    return actual_n;
+    return get_move_evaluations(stockfish_in, stockfish_out, fen, top_moves, n);
 }
 
 void get_new_position(FILE *stockfish_in, FILE *stockfish_out, const char *fen, const char *move, char *new_fen) {

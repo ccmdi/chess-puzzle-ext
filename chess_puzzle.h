@@ -33,7 +33,7 @@ void send_to_stockfish(FILE *stockfish_in, const char *command);
 char* read_from_stockfish(FILE *stockfish_out, const char *until_marker);
 
 // Chess position analysis functions
-int get_move_evaluations(FILE *stockfish_in, FILE *stockfish_out, const char *fen, Move *moves);
+int get_move_evaluations(FILE *stockfish_in, FILE *stockfish_out, const char *fen, Move *moves, int multipv_count);
 bool is_puzzle_position(FILE *stockfish_in, FILE *stockfish_out, const char *fen, char *winning_move);
 int get_top_n_moves(FILE *stockfish_in, FILE *stockfish_out, const char *fen, Move *top_moves, int n);
 void get_new_position(FILE *stockfish_in, FILE *stockfish_out, const char *fen, const char *move, char *new_fen);
