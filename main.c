@@ -22,7 +22,8 @@ int main(int argc, char *argv[]) {
     bool white_to_move = (strstr(fen, " w ") != NULL);
     
     // Find the longest puzzle line
-    PuzzleLine longest_line = find_longest_puzzle(stockfish_in, stockfish_out, fen, white_to_move, 0);
+    PositionHistory history[100] = {0};
+    PuzzleLine longest_line = find_longest_puzzle(stockfish_in, stockfish_out, fen, white_to_move, 0, history, 0);
     
     if (longest_line.length > 0) {
         printf("Longest puzzle line (%d half-moves): %s\n", longest_line.length, longest_line.moves);

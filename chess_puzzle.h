@@ -11,7 +11,7 @@
 #define MAX_LINE_LENGTH 1024
 #define MAX_MOVES 256
 #define WINNING_THRESHOLD 150 // centipawns
-#define TOP_N_MOVES 3 // Number of top moves for black
+#define TOP_N_MOVES_BLACK 3 // Number of top moves for black
 #define ANALYSIS_DEPTH 20
 
 // Structure for moves with evaluation
@@ -26,6 +26,11 @@ typedef struct {
     int length; // number of half-moves
 } PuzzleLine;
 
+typedef struct {
+    char fen_partial[64]; // Store just the piece positions part of FEN
+    char move[MAX_MOVE_LENGTH];
+} PositionHistory;
+
 // Stockfish communication functions
 bool initialize_stockfish(FILE **stockfish_in, FILE **stockfish_out);
 void close_stockfish(FILE *stockfish_in, FILE *stockfish_out);
@@ -39,6 +44,6 @@ int get_top_n_moves(FILE *stockfish_in, FILE *stockfish_out, const char *fen, Mo
 void get_new_position(FILE *stockfish_in, FILE *stockfish_out, const char *fen, const char *move, char *new_fen);
 
 // Puzzle finding algorithm
-PuzzleLine find_longest_puzzle(FILE *stockfish_in, FILE *stockfish_out, const char *fen, bool white_to_move, int depth);
+PuzzleLine find_longest_puzzle(FILE *stockfish_in, FILE *stockfish_out, const char *fen, bool white_to_move, int depth, PositionHistory *history, int history_count);
 
 #endif // CHESS_PUZZLE_H
