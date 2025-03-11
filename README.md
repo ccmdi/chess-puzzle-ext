@@ -1,0 +1,3 @@
+# TODO
+- Optimizations
+- Loop detection
